@@ -1,0 +1,24 @@
+services:
+  calendar-slack-bot:
+    container_name: calendar-bot
+    build: .
+    restart: always
+    env_file: .env
+    environment:
+      PYTHONPATH: /app/src
+      HEADLESS: "true"
+      GOOGLE_CREDENTIALS_PATH: /run/secrets/google_credentials.json
+      GOOGLE_TOKEN_PATH: /data/token.json
+      GOOGLE_SYNC_STATE_PATH: /data/google-sync-state.json
+    volumes:
+      - ./data:/data
+    secrets:
+      - google_credentials
+
+secrets:
+  google_credentials:
+    file: ./credentials.json
+
+networks:
+  default:
+    name: calendar-bot-default

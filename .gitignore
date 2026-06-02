@@ -1,0 +1,20 @@
+# Credentials and secrets — never commit these
+credentials.json
+data/
+*.pickle
+token.json
+slack_bot_token.txt
+
+# Environment
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg-link
+.pytest_cache/
+.venv/
+venv/
+dist/
+build/
