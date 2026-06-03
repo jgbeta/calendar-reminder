@@ -6,13 +6,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid app --home-dir /app --shell /usr/sbin/nologin app
 
+COPY pyproject.toml README.md ./
 COPY src ./src
 COPY scripts ./scripts
 COPY docs ./docs
-COPY README.md ./README.md
 
-# The image intentionally does not include credentials.json, token.json, or Slack tokens.
-CMD ["python", "-m", "calendar_slack_bot.main"]
+RUN pip install --no-cache-dir . \
+    && mkdir -p /data \
+    && chown -R app:app /app /data
+
+USER app
+
+HEALTHCHECK --interval=60s --timeout=5s --start-period=30s --retries=3 \
+    CMD ["calendar-slack-bot-healthcheck"]
+
+# The image intentionally does not include credentials.json, token.json, Slack tokens, or SQLite state.
+CMD ["calendar-slack-bot"]

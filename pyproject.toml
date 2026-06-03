@@ -7,6 +7,17 @@ name = "calendar-bot"
 version = "1.0.0"
 description = "A modular calendar notification bot. Currently supports Google Calendar and Slack."
 requires-python = ">=3.10"
+dependencies = [
+    "google-api-python-client>=2.120,<3",
+    "google-auth-httplib2>=0.2,<1",
+    "google-auth-oauthlib>=1.2,<2",
+    "slack-sdk>=3.27,<4",
+    "python-dotenv>=1.0,<2",
+]
+
+[project.scripts]
+calendar-slack-bot = "calendar_slack_bot.main:main"
+calendar-slack-bot-healthcheck = "calendar_slack_bot.healthcheck:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

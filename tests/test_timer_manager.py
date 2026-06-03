@@ -1,3 +1,4 @@
+import _path  # noqa: F401
 import unittest
 from datetime import datetime, timedelta, timezone
 

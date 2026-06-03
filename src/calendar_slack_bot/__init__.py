@@ -5,4 +5,6 @@ __all__ = [
     "message_rendering",
     "timer_manager",
     "sync",
+    "state_store",
+    "healthcheck",
 ]

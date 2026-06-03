@@ -1,6 +1,6 @@
-# Google Calendar Slack Bot
+# Google Calendar Reminders Slack Bot
 
-Get Slack notifications before your meetings — 30 minutes and 5 minutes before each event, plus instant alerts when a meeting is cancelled or rescheduled. Designed to run as a lightweight Docker container on any always-on machine (home server, NAS, VPS). Supports Google Meet, Zoom, Microsoft Teams, or any event with a URL in the location or description field.
+Get Slack notifications before your meetings — 30 minutes and 5 minutes before each event, plus instant alerts when a meeting is cancelled or rescheduled. Designed to run as a lightweight Docker container on any always-on machine (home server, NAS, VPS), with SQLite-backed reminder state that survives restarts. Supports Google Meet, Zoom, Microsoft Teams, or any event with a URL in the location or description field.
 
 ```
 Event starting in 5m.
@@ -122,7 +122,7 @@ The bot can @-mention you in every notification so you get a push notification o
 ### 3.1 Clone the repository
 
 ```bash
-git clone https://github.com/your-username/calendar-bot.git
+git clone https://github.com/jgbeta/calendar-reminder.git
 cd calendar-bot
 ```
 
@@ -159,32 +159,39 @@ cp .env.example .env
 Open `.env` and fill in your values:
 
 ```env
+HEADLESS=true
+GOOGLE_CREDENTIALS_PATH=/run/secrets/google_credentials.json
+GOOGLE_TOKEN_PATH=/data/token.json
+GOOGLE_SYNC_STATE_PATH=/data/google-sync-state.json
+CALENDAR_BOT_DB_PATH=/data/calendar-bot.sqlite
 SLACK_BOT_TOKEN=xoxb-your-token-here
 SLACK_DM_CHANNEL_ID=C09CPUB59B4
 SLACK_MENTION_USER_ID=U079MLMM1CK
 IGNORED_CREATOR_EMAILS=your.email@company.com,noreply@company.com
-GOOGLE_CREDENTIALS_PATH=credentials.json
-GOOGLE_TOKEN_PATH=data/token.json
-GOOGLE_SYNC_STATE_PATH=data/google-sync-state.json
 CALENDAR_ID=primary
 POLL_SECONDS=60
-HEADLESS=true
+CALENDAR_BOT_UID=1000
+CALENDAR_BOT_GID=1000
 ```
 
 | Variable | What it is | Where to get it |
 |---|---|---|
-| `SLACK_BOT_TOKEN` | Bot OAuth token | Slack app → OAuth & Permissions (Step 2.3) |
+| `SLACK_BOT_TOKEN` | Bot OAuth token | Slack app -> OAuth & Permissions (Step 2.3) |
 | `SLACK_DM_CHANNEL_ID` | Channel to post messages to | Slack web URL (Step 2.4) |
-| `SLACK_MENTION_USER_ID` | Slack user to @-mention | Your Slack profile → Copy member ID (Step 2.5) |
+| `SLACK_MENTION_USER_ID` | Slack user to @-mention | Your Slack profile -> Copy member ID (Step 2.5) |
 | `IGNORED_CREATOR_EMAILS` | Events created by these emails are silently skipped | Your own email; calendar bots; noreply addresses |
-| `GOOGLE_CREDENTIALS_PATH` | Path to the OAuth secrets file | The file you downloaded in Part 1.4 |
-| `GOOGLE_TOKEN_PATH` | Path for the generated token | `data/token.json` (created in Step 3.3) |
-| `GOOGLE_SYNC_STATE_PATH` | Path for sync state (auto-created) | `data/google-sync-state.json` |
+| `GOOGLE_CREDENTIALS_PATH` | Path to the OAuth secrets file in Docker | `/run/secrets/google_credentials.json` from `docker-compose.yml` |
+| `GOOGLE_TOKEN_PATH` | Path for the generated token | `/data/token.json` in Docker |
+| `GOOGLE_SYNC_STATE_PATH` | Legacy JSON state import path | `/data/google-sync-state.json` if upgrading from the old JSON cache |
+| `CALENDAR_BOT_DB_PATH` | SQLite event/reminder state cache | `/data/calendar-bot.sqlite` |
 | `CALENDAR_ID` | Which calendar to monitor | `primary` for your main Google calendar |
 | `POLL_SECONDS` | How often to check for changes | `60` (once per minute) |
+| `CALENDAR_BOT_UID` / `CALENDAR_BOT_GID` | Container user used for the `/data` bind mount | `1000` works for most Linux desktop users |
 | `HEADLESS` | Prevents the bot from opening a browser | `true` for Docker; `false` only for first-time local setup |
 
-> **`IGNORED_CREATOR_EMAILS`**: Add your own email here. Google Calendar often records events you created yourself as having your email as the creator, and you usually don't need reminders for meetings you set up.
+> **`IGNORED_CREATOR_EMAILS`**: Add your own email here. Google Calendar often records events you created yourself as having your email as the creator, and you usually do not need reminders for meetings you set up.
+>
+> For local, non-Docker runs, use paths like `GOOGLE_CREDENTIALS_PATH=credentials.json`, `GOOGLE_TOKEN_PATH=data/token.json`, and `CALENDAR_BOT_DB_PATH=data/calendar-bot.sqlite`.
 
 ---
 
@@ -216,7 +223,7 @@ docker compose down
 ### Option B — Run locally
 
 ```bash
-PYTHONPATH=src python3 src/calendar_slack_bot/main.py
+calendar-slack-bot
 ```
 
 Press `Ctrl-C` to stop. The bot loads `.env` automatically on startup.
@@ -226,7 +233,7 @@ Press `Ctrl-C` to stop. The bot loads `.env` automatically on startup.
 | What changed | Command |
 |---|---|
 | `.env` only | `docker compose up` (no rebuild needed) |
-| Any `.py` file or `requirements.txt` | `docker compose up --build` |
+| Any `.py` file, `pyproject.toml`, or `requirements.txt` | `docker compose up --build` |
 | Just restart | `docker compose restart calendar-slack-bot` |
 
 ---
@@ -277,8 +284,8 @@ The token file is missing or expired. Re-run the bootstrap script:
 python3 scripts/bootstrap_google_token.py --credentials credentials.json --token data/token.json
 ```
 
-**`Sync token expired. Clearing state and running full sync on next loop.`**
-This is normal — Google expires sync tokens after ~7 days of inactivity. The bot recovers automatically on the next poll. If the warning repeats every minute indefinitely, delete `data/google-sync-state.json` and restart.
+**`Sync token expired. Clearing only the token; cached events/reminders remain in SQLite.`**
+This is normal when Google expires a sync token after inactivity. The bot keeps cached future reminders in SQLite and runs a full sync on the next poll. If the warning repeats every minute indefinitely, stop the container, move `data/calendar-bot.sqlite` aside, and restart to rebuild the cache.
 
 **`Failed to post Slack message`**
 Usually a bad or expired `SLACK_BOT_TOKEN`. Verify the token in your Slack app settings (OAuth & Permissions). Also check that the bot was invited to the channel with `/invite @your-bot-name`.
@@ -299,10 +306,12 @@ src/calendar_slack_bot/
 ├── auth.py              Headless-safe Google OAuth token loading
 ├── calendar_events.py   Normalizes raw Google Calendar events (Meet, Zoom, Teams, etc.)
 ├── config.py            Environment variable config loader
+├── healthcheck.py       Docker healthcheck for the SQLite heartbeat
 ├── message_rendering.py Formats Slack notification text
 ├── slack_client.py      Slack Web API wrapper
+├── state_store.py       SQLite event/reminder/sync state cache
 ├── sync.py              Google Calendar full/incremental sync client
-└── timer_manager.py     Thread-safe reminder timer scheduling
+└── timer_manager.py     Legacy in-memory timer utility covered by tests
 
 scripts/
 ├── bootstrap_google_token.py   One-time OAuth flow (needs a browser)
@@ -317,5 +326,6 @@ data/                    Runtime data directory (token.json, sync state)
 ## Security notes
 
 - `credentials.json` and `data/token.json` contain sensitive credentials. Never commit them to git. They are listed in `.gitignore`.
+- `data/calendar-bot.sqlite` contains cached calendar event metadata, meeting links, and reminder status. Treat it as private runtime data.
 - The bot requests read-only access to your calendar (`calendar.readonly` scope). It cannot create, modify, or delete events.
 - The Slack bot token (`xoxb-...`) has write access to the channel you specify. Keep it secret.

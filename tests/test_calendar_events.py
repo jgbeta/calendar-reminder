@@ -1,3 +1,4 @@
+import _path  # noqa: F401
 import unittest
 
 from calendar_slack_bot.calendar_events import extract_join_url, normalize_event

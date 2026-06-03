@@ -1,3 +1,4 @@
+import _path  # noqa: F401
 import unittest
 
 from calendar_slack_bot.sync import CalendarSyncClient, SyncTokenExpired
