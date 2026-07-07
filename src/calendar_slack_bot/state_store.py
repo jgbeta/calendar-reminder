@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 from pathlib import Path
@@ -19,6 +19,13 @@ class DueReminder:
     event: NormalizedEvent
     offset_minutes: int
     scheduled_for: datetime
+
+
+@dataclass(frozen=True)
+class SlackRateLimitState:
+    suppressed_count: int
+    warning_after: datetime | None
+    last_rate_limited_at: datetime | None
 
 
 class SQLiteStateStore:
@@ -112,6 +119,66 @@ class SQLiteStateStore:
 
     def clear_sync_token(self) -> None:
         self.conn.execute("DELETE FROM meta WHERE key = ?", ("next_sync_token",))
+        self.conn.commit()
+
+    def get_int_meta(self, key: str, default: int = 0) -> int:
+        value = self.get_meta(key)
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            return default
+
+    def get_slack_rate_limit_state(self) -> SlackRateLimitState:
+        return SlackRateLimitState(
+            suppressed_count=self.get_int_meta("slack_rate_limit_suppressed_count"),
+            warning_after=parse_dt(self.get_meta("slack_rate_limit_warning_after")),
+            last_rate_limited_at=parse_dt(self.get_meta("slack_rate_limit_last_at")),
+        )
+
+    def record_slack_rate_limit(
+        self,
+        when: datetime,
+        cooldown_seconds: int,
+        retry_after_seconds: int | None = None,
+        *,
+        suppressed_count: int = 1,
+    ) -> None:
+        wait_seconds = max(cooldown_seconds, retry_after_seconds or 0)
+        warning_after = when + timedelta(seconds=wait_seconds)
+        total = self.get_int_meta("slack_rate_limit_suppressed_count") + max(suppressed_count, 0)
+        self.set_meta("slack_rate_limit_suppressed_count", str(total))
+        self.set_meta("slack_rate_limit_warning_after", utc_iso(warning_after))
+        self.set_meta("slack_rate_limit_last_at", utc_iso(when))
+        self.conn.commit()
+
+    def record_suppressed_slack_notification(self, when: datetime, *, count: int = 1) -> None:
+        total = self.get_int_meta("slack_rate_limit_suppressed_count") + max(count, 0)
+        self.set_meta("slack_rate_limit_suppressed_count", str(total))
+        self.set_meta("slack_rate_limit_last_suppressed_at", utc_iso(when))
+        self.conn.commit()
+
+    def postpone_slack_rate_limit_warning(
+        self,
+        when: datetime,
+        cooldown_seconds: int,
+        retry_after_seconds: int | None = None,
+    ) -> None:
+        wait_seconds = max(cooldown_seconds, retry_after_seconds or 0)
+        self.set_meta("slack_rate_limit_warning_after", utc_iso(when + timedelta(seconds=wait_seconds)))
+        self.conn.commit()
+
+    def clear_slack_rate_limit_state(self) -> None:
+        self.conn.executemany(
+            "DELETE FROM meta WHERE key = ?",
+            (
+                ("slack_rate_limit_suppressed_count",),
+                ("slack_rate_limit_warning_after",),
+                ("slack_rate_limit_last_at",),
+                ("slack_rate_limit_last_suppressed_at",),
+            ),
+        )
         self.conn.commit()
 
     def write_heartbeat(self, when: datetime) -> None:

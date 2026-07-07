@@ -18,6 +18,8 @@ class BotConfig:
     headless: bool
     ignored_creator_emails: frozenset
     slack_mention_user_id: str | None
+    slack_rate_limit_warning_cooldown_seconds: int
+    notification_horizon_days: int
 
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
@@ -38,6 +40,10 @@ def load_config_from_env() -> BotConfig:
         headless=os.getenv("HEADLESS", "true").lower() in {"1", "true", "yes", "y"},
         ignored_creator_emails=ignored,
         slack_mention_user_id=os.getenv("SLACK_MENTION_USER_ID") or None,
+        slack_rate_limit_warning_cooldown_seconds=int(
+            os.getenv("SLACK_RATE_LIMIT_WARNING_COOLDOWN_SECONDS", "900")
+        ),
+        notification_horizon_days=int(os.getenv("NOTIFICATION_HORIZON_DAYS", "7")),
     )
 
 

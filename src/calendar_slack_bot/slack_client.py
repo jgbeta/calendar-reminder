@@ -24,7 +24,11 @@ class SlackMessenger:
             response = self._client.chat_postMessage(channel=channel, text=text)
             data = response.data
         except self._slack_api_error as exc:
-            logger.exception("Slack chat.postMessage failed: %s", exc.response.get("error"))
+            error = exc.response.get("error")
+            if error == "ratelimited":
+                logger.warning("Slack chat.postMessage rate-limited")
+            else:
+                logger.exception("Slack chat.postMessage failed: %s", error)
             raise
 
         if not data.get("ok", False):

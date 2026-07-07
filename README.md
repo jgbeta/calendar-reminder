@@ -1,6 +1,6 @@
 # Google Calendar Reminders Slack Bot
 
-Get Slack notifications before your meetings — 30 minutes and 5 minutes before each event, plus instant alerts when a meeting is cancelled or rescheduled. Designed to run as a lightweight Docker container on any always-on machine (home server, NAS, VPS), with SQLite-backed reminder state that survives restarts. Supports Google Meet, Zoom, Microsoft Teams, or any event with a URL in the location or description field.
+Get Slack notifications before your meetings — 30 minutes and 5 minutes before each event, plus instant alerts when a near-term meeting is cancelled or rescheduled. Designed to run as a lightweight Docker container on any always-on machine (home server, NAS, VPS), with SQLite-backed reminder state that survives restarts. Supports Google Meet, Zoom, Microsoft Teams, or any event with a URL in the location or description field.
 
 ```
 Event starting in 5m.
@@ -170,6 +170,8 @@ SLACK_MENTION_USER_ID=U079MLMM1CK
 IGNORED_CREATOR_EMAILS=your.email@company.com,noreply@company.com
 CALENDAR_ID=primary
 POLL_SECONDS=60
+NOTIFICATION_HORIZON_DAYS=7
+SLACK_RATE_LIMIT_WARNING_COOLDOWN_SECONDS=900
 CALENDAR_BOT_UID=1000
 CALENDAR_BOT_GID=1000
 ```
@@ -186,6 +188,8 @@ CALENDAR_BOT_GID=1000
 | `CALENDAR_BOT_DB_PATH` | SQLite event/reminder state cache | `/data/calendar-bot.sqlite` |
 | `CALENDAR_ID` | Which calendar to monitor | `primary` for your main Google calendar |
 | `POLL_SECONDS` | How often to check for changes | `60` (once per minute) |
+| `NOTIFICATION_HORIZON_DAYS` | How far ahead to send cancellation, reschedule, and reminder notifications | `7` |
+| `SLACK_RATE_LIMIT_WARNING_COOLDOWN_SECONDS` | How long to wait before sending one rate-limit warning after Slack throttles the bot | `900` (15 minutes) |
 | `CALENDAR_BOT_UID` / `CALENDAR_BOT_GID` | Container user used for the `/data` bind mount | `1000` works for most Linux desktop users |
 | `HEADLESS` | Prevents the bot from opening a browser | `true` for Docker; `false` only for first-time local setup |
 
@@ -273,6 +277,7 @@ The bot skips:
 - All-day events (no specific start time)
 - Events created by addresses in `IGNORED_CREATOR_EMAILS`
 - Events that have already started
+- Cancellation, reschedule, and reminder notifications for events beyond `NOTIFICATION_HORIZON_DAYS`
 
 ---
 
@@ -289,6 +294,9 @@ This is normal when Google expires a sync token after inactivity. The bot keeps 
 
 **`Failed to post Slack message`**
 Usually a bad or expired `SLACK_BOT_TOKEN`. Verify the token in your Slack app settings (OAuth & Permissions). Also check that the bot was invited to the channel with `/invite @your-bot-name`.
+
+**`Slack rate-limited calendar bot notifications; suppressing the current burst`**
+Slack rejected a burst of messages. The bot stops sending normal notifications for the current burst, records the number suppressed in SQLite, and later sends one warning after `SLACK_RATE_LIMIT_WARNING_COOLDOWN_SECONDS`. It does not retry the suppressed post.
 
 **Meeting has a Zoom / Teams link but message shows "(no meeting link)"**
 The event must have a `conferenceData` entry, or a URL somewhere in the `location` or `description` field. The bot checks all three automatically. If the link is embedded in an HTML anchor tag in the description, it will still be found.
